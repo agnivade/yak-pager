@@ -42,6 +42,24 @@ export function insertPageBreak(state: Parameters<Command>[0], dispatch?: Parame
   return true
 }
 
+/**
+ * Shift-Enter: insert a hard_break — the schema's one inline node. A line
+ * end *inside* a block, not a new block. Refused when the cursor is not in
+ * inline content (e.g. a block node is selected), where it would not fit.
+ */
+export function insertHardBreak(state: Parameters<Command>[0], dispatch?: Parameters<Command>[1]) {
+  if (!schema.nodes.hard_break) return false
+  if (!state.selection.$from.parent.inlineContent) return false
+  if (dispatch) {
+    dispatch(
+      state.tr
+        .replaceSelectionWith(schema.nodes.hard_break.create())
+        .scrollIntoView()
+    )
+  }
+  return true
+}
+
 const FONT_SIZES = [12, 14, 16, 18, 20, 24, 32]
 
 export function buildToolbar(view: EditorView, mount: HTMLElement): { sync: () => void } {
