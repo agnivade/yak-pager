@@ -1,0 +1,326 @@
+/*
+ * Page geometry must match src/layout.ts:
+ *   sheet 816x1056 (8.5x11in @96dpi), margins 96px, content 864px tall,
+ *   desk gap 24px, band 216px, SVG tile 832x1072 (8px bleed).
+ * .paper-stack's padding-top is MARGIN + BLEED = 104px so that background
+ * layer k's y-position equals the solver's pageStarts[k] exactly.
+ */
+:root {
+  --desk: #d8dde5;
+  --ink: #1f2328;
+  --accent: #1a73e8;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--desk);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ---------- toolbar ---------- */
+
+#toolbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  background: #ffffff;
+  border-bottom: 1px solid #c9ced7;
+  z-index: 20;
+}
+
+#toolbar button {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #c9ced7;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+#toolbar button:hover {
+  background: #f0f4f9;
+}
+#toolbar button.active {
+  background: #e1ecfe;
+  border-color: var(--accent);
+  color: #174ea6;
+}
+#toolbar select {
+  height: 32px;
+  border: 1px solid #c9ced7;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+}
+.tb-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* ---------- the paper ---------- */
+
+#app {
+  padding-top: 84px; /* toolbar */
+  margin-right: 372px; /* dev panel */
+}
+
+.paper-stack {
+  width: 832px; /* 816 + 2 x BLEED */
+  margin: 24px auto;
+  padding: 104px 8px 0; /* top = MARGIN + BLEED; JS sets padding-bottom */
+  box-sizing: content-box;
+  background-repeat: no-repeat;
+  background-size: 832px 1072px; /* the SVG tile */
+  background-color: transparent;
+}
+
+/* ProseMirror base behavior we'd otherwise get from prosemirror.css */
+#paper .ProseMirror {
+  position: relative;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  -webkit-font-variant-ligatures: none;
+  font-variant-ligatures: none;
+  outline: none;
+}
+
+/* The editor spans the full 816px sheet; its horizontal 96px padding is the
+   page margin. NO vertical padding, NO border, NO margins on blocks — the
+   flow must start exactly at the first page's content origin, and block
+   spacing must live inside the measured boxes (padding), where margin
+   collapsing cannot touch it. */
+#paper .ProseMirror {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink);
+  padding: 0 96px;
+  min-height: 864px;
+  caret-color: var(--accent);
+}
+
+#paper .ProseMirror > * {
+  margin: 0;
+}
+
+#paper .ProseMirror p {
+  padding-bottom: 10px;
+}
+
+#paper .ProseMirror h1 {
+  font-size: 28px;
+  line-height: 1.25;
+  padding: 18px 0 10px;
+  font-weight: 700;
+}
+#paper .ProseMirror h2 {
+  font-size: 22px;
+  line-height: 1.3;
+  padding: 16px 0 8px;
+  font-weight: 700;
+}
+#paper .ProseMirror h3 {
+  font-size: 18px;
+  line-height: 1.35;
+  padding: 12px 0 8px;
+  font-weight: 600;
+}
+
+#paper .ProseMirror hr {
+  border: none;
+  border-top: 2px solid #c3c9d2;
+  padding: 14px 0;
+}
+
+/* Explicit (authorial) page break node */
+#paper .ProseMirror [data-page-break] {
+  border-top: 1px dashed #c5221f;
+  padding: 6px 0 10px;
+  position: relative;
+  user-select: none;
+}
+#paper .ProseMirror [data-page-break]::after {
+  content: "explicit page break";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  font: 10px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #c5221f;
+}
+#paper .ProseMirror [data-page-break].ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- the gap widget band ----------
+   The widget IS the inter-page space: its box height is band (216px) plus
+   --push (the ragged space left on the page above), so the block after it
+   flows to the next page's content start with NO margin of its own —
+   pagination never touches block DOM. Its absolutely positioned children
+   are offset by the same --push: everything below is at a fixed offset from
+   the ragged bottom, so the pooled element's *internals never change when
+   the break moves* — only its insertion position does. */
+.page-gap {
+  position: relative;
+  height: calc(216px + var(--push, 0px));
+  pointer-events: none;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+.page-gap .gap-rule {
+  position: absolute;
+  top: var(--push, 0px);
+  left: -96px;
+  right: -96px;
+  border-top: 1px dashed rgba(26, 115, 232, 0.45);
+}
+.page-gap .gap-num {
+  position: absolute;
+  top: var(--push, 0px);
+  height: 96px; /* the bottom margin of the sheet above */
+  left: -96px;
+  right: -96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* ---------- dev panel ---------- */
+
+#panel {
+  position: fixed;
+  top: 64px;
+  right: 12px;
+  width: 348px;
+  z-index: 15;
+}
+
+.panel-card {
+  background: #101418;
+  color: #dbe1e8;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  max-height: 70vh;
+  overflow: auto;
+}
+.panel-card h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #7dd3fc;
+}
+.panel-card .stats {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.panel-card .k {
+  color: #7c8794;
+  margin-right: 6px;
+}
+.panel-card .v {
+  color: #f3f6f9;
+}
+.panel-card .breaks {
+  margin-bottom: 10px;
+}
+.panel-card .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.chip {
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  background: #1c2430;
+  color: #9aa7b5;
+}
+.chip-setAttribute,
+.chip-insertBefore {
+  background: #11331e;
+  color: #4ade80;
+}
+.chip-removeAttribute {
+  background: #11331e;
+  color: #86efac;
+}
+.chip-create,
+.chip-remove {
+  background: #3a2a0a;
+  color: #fbbf24;
+}
+.chip-other {
+  background: #3f1414;
+  color: #f87171;
+}
+
+.oplog {
+  border-top: 1px solid #232c37;
+  padding-top: 8px;
+  margin-bottom: 8px;
+}
+.op {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #9aa7b5;
+}
+.op-set {
+  color: #4ade80;
+}
+.op-unset {
+  color: #86efac;
+}
+.op-move {
+  color: #7dd3fc;
+}
+.op-create,
+.op-remove {
+  color: #fbbf24;
+}
+.op-other {
+  color: #f87171;
+}
+
+.history {
+  border-top: 1px solid #232c37;
+  padding-top: 8px;
+  color: #64707d;
+  font-size: 11px;
+}
+
+.panel-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.panel-buttons button {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid #2c3644;
+  background: #1a2029;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+.panel-buttons button:hover {
+  background: #232b36;
+}
