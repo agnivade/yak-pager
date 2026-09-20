@@ -5,7 +5,7 @@ import { keymap } from "prosemirror-keymap"
 import { baseKeymap } from "prosemirror-commands"
 import { history, undo, redo } from "prosemirror-history"
 import { buildSeedDoc } from "./seed"
-import { paginationPlugin, requestFullRecompute } from "./paginationPlugin"
+import { paginationPlugin, paginationKey, requestFullRecompute } from "./paginationPlugin"
 import { buildToolbar, insertPageBreak, insertHardBreak } from "./toolbar"
 import { createDevPanel } from "./devPanel"
 import "./styles.css"
@@ -42,8 +42,12 @@ toolbar = buildToolbar(view, document.getElementById("toolbar")!)
 panel.attach(view)
 
   // Poke at the editor from the console: window.__pager.view.state.doc, ...
-  // (also used by tests/e2e.mjs to verify widget placement against the doc).
-  ; (window as unknown as { __pager: { view: EditorView } }).__pager = { view }
+  // (also used by tests/e2e.mjs to verify widget placement against the doc —
+  // the key is how it reads the pagination state out of the built bundle).
+  ; (window as unknown as { __pager: { view: EditorView; key: typeof paginationKey } }).__pager = {
+    view,
+    key: paginationKey,
+  }
 
 // Heights can change without the document changing: fonts settling, images
 // loading, the window resizing. Each triggers a full re-measure through a

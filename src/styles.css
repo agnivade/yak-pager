@@ -199,6 +199,21 @@ body {
   color: #6b7280;
 }
 
+/* In-paragraph placement: a break that splits a paragraph draws the same
+   widget between two words. A float is pulled out of baseline layout, and a
+   cleared line must start below its bottom edge, so the words after it land
+   exactly on the next page's content start — the invisible line-height box
+   ("strut") of a normal text line never adds to the widget's own height
+   (verified by tests/spike.mjs; the inline-block alternative fails this by
+   +10px). The browser aligns the float's top edge with the carried line's
+   line-box top, which is the quantity MEASURE reports as the split
+   candidate's height (measureSplitCandidates in paginationPlugin.ts). */
+#paper .ProseMirror p .page-gap {
+  float: left;
+  clear: both;
+  width: 100%;
+}
+
 /* ---------- dev panel ---------- */
 
 #panel {

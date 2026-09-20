@@ -151,32 +151,95 @@ ok(
   `create=${chips3.create} remove=${chips3.remove}`
 )
 
-// Placement: each widget must sit immediately before the block that begins
-// the page after its break — doc positions checked against the real doc.
+console.log("— typing inside a paragraph that straddles a page boundary")
+// The scenario the split feature exists for: caret at the end of the
+// paragraph that currently contains a gap widget (it straddles a page),
+// then type. The split may move by a line or stay put — either way the
+// reflow may only reuse widgets (insertBefore + text re-splits + --push
+// writes), and the landing checks below verify the new geometry exactly.
+await page.evaluate(() => {
+  const p = [...document.querySelectorAll(".ProseMirror p")].find((el) =>
+    el.querySelector(".page-gap")
+  )
+  const range = document.createRange()
+  range.selectNodeContents(p)
+  range.collapse(false)
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
+  document.querySelector(".ProseMirror").focus()
+})
+await page.keyboard.type(" And a final sentence, typed at the end of a paragraph that is currently split across a page boundary.")
+await sleep(1100)
+const chips4 = await readChips()
+ok((chips4.other ?? 0) === 0, "typing in a split paragraph: no unexpected mutations", JSON.stringify(chips4))
+ok(
+  (chips4.create ?? 0) + (chips4.remove ?? 0) <= 2,
+  "typing in a split paragraph: no widget churn",
+  `create=${chips4.create} remove=${chips4.remove}`
+)
+
+// Placement: each widget must sit immediately before the content that
+// begins the page after its break — that content may be a block OR a word
+// inside a paragraph, so resolve the DOM point at break.pos and check the
+// widget is its previous element sibling.
 const placement = await page.evaluate(() => {
-  const { view } = window.__pager
+  const { view, key } = window.__pager
   const s = view.state
-  const breaks = s.plugins
-    .map((p) => p.getState?.(p.key ?? "pagination"))
-    .find((st) => st && "breaks" in st)
-  const bl = breaks?.breaks ?? []
-  const blocks = [...view.dom.children].filter(
-    (el) => !(el.classList && el.classList.contains("page-gap"))
-  )
-  const widgets = [...view.dom.children].filter(
-    (el) => el.classList && el.classList.contains("page-gap")
-  )
+  const bl = key.getState(s)?.breaks ?? []
   const bad = []
   bl.forEach((b, i) => {
-    const idx = s.doc.resolve(b.pos).index() // top-level block index at break
-    const w = widgets.find((x) => x.dataset.page === String(i))
+    const w = [...view.dom.querySelectorAll(".page-gap")].find(
+      (x) => x.dataset.page === String(i)
+    )
     if (!w) return void bad.push(`widget ${i} missing`)
-    if (w.nextElementSibling !== blocks[idx])
-      bad.push(`widget ${i} not before block ${idx}`)
+    const at = view.domAtPos(b.pos)
+    const target = at.node.nodeType === 1 ? at.node.childNodes[at.offset] : at.node
+    let prev = target?.previousSibling
+    while (prev && prev.nodeType === 3 && !(prev.textContent || "").trim()) {
+      prev = prev.previousSibling
+    }
+    if (!prev || prev !== w) bad.push(`widget ${i} not immediately before pos ${b.pos}`)
   })
-  return { breaks: bl.map((b) => b.pos), bad, blocks: blocks.length }
+  return {
+    breaks: bl.map((b) => b.pos),
+    inline: bl.some((b) => s.doc.resolve(b.pos).depth >= 1),
+    bad,
+  }
 })
-ok(placement.bad.length === 0, "every widget sits exactly before its break's block", JSON.stringify(placement.bad))
+ok(placement.bad.length === 0, "every widget sits immediately before its break's content", JSON.stringify(placement.bad))
+ok(placement.inline, "at least one break splits a paragraph mid-text (inline pos)")
+
+// Landing: the whole pipeline is pixel-exact end to end — every widget's
+// box must END exactly at the next page's content start, block-level and
+// in-paragraph alike. Expected page starts are derived from the same
+// arithmetic the solver used: pageStart_{k+1} = pageStart_k + max(fill_k,
+// 864) + 216, with fill_k = 864 - remaining_k.
+const CONTENT_H = 864
+const BAND = 216
+const landing = await page.evaluate(() => {
+  const { view, key } = window.__pager
+  const pmTop = view.dom.getBoundingClientRect().top
+  const s = view.state
+  return (key.getState(s)?.breaks ?? []).map((b, i) => {
+    const w = [...view.dom.querySelectorAll(".page-gap")].find(
+      (x) => x.dataset.page === String(i)
+    )
+    return {
+      bottom: w ? w.getBoundingClientRect().bottom - pmTop : null,
+      remaining: b.remaining,
+    }
+  })
+})
+let pageStart = 0
+landing.forEach((l, i) => {
+  pageStart += Math.max(CONTENT_H - l.remaining, CONTENT_H) + BAND
+  ok(
+    l.bottom != null && Math.abs(l.bottom - pageStart) <= 0.5,
+    `widget ${i} box bottom = page ${i + 2} content start (${pageStart.toFixed(1)})`,
+    l.bottom == null ? "widget missing" : `off by ${(l.bottom - pageStart).toFixed(2)}px`
+  )
+})
 
 console.log("— doc.toJSON() carries no page nodes")
 const docDumped = await page.evaluate(() => {

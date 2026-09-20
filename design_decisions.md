@@ -90,4 +90,26 @@ The following are two proposals:
 
 Needs to be verified practically.
 
+**Verified (spike): the float approach is pixel-exact.** The spike lives in `tests/spike-split.html` + `tests/spike.mjs` (run: `npm run spike`). It reproduces the paper geometry and places real spacers at measured line boundaries. Measured in Chrome:
+
+- The float's box bottom lands on the next page's content start to 0.00px in every scenario: plain text, `text-align: justify`, mixed font sizes, and one paragraph spanning three pages (two spacers). The first carried word sits a half-leading (3px) below the page start, which is the exact same place a fresh paragraph starting that page puts its first word — so a split paragraph looks identical to a block-level break.
+- Nothing above the split moves and nothing re-wraps. Line-by-line word sequences are identical before and after insertion, horizontal positions are unchanged, and justify holds across the spacer (split lines do not go ragged).
+- The paragraph box grows around the float, the flow height grows by exactly the spacer heights, and the next block stacks flush after the paragraph.
+- The inline-block variant fails by +10px, exactly as the strut analysis predicted: its own box lands correctly, but the word after it overshoots because the line box grows by the paragraph's line-height. This rules it out.
+
+One measurement subtlety the spike settled: "landing" must be asserted on the spacer's box bottom (which is the carried line's line-box top), not on the word's em-box top. The em-box sits a constant half-leading lower on both sides of the break, so it cancels out.
+
+**Implemented.** Paragraphs now split at line boundaries. The pipeline:
+
+- **MEASURE** (`measureSplitCandidates` in `src/paginationPlugin.ts`) walks a paragraph's words with Ranges, groups them into visual lines, and reports one candidate per line after the first: the line's first word and the height from the paragraph's top to that line's line-box top (the quantity the float aligns to, per the spike). A paragraph that already contains its gap widget is measured with the widget's space subtracted from its height and from the lines below it, so re-measuring a split paragraph reproduces the same numbers — reflow stays idempotent.
+- **SOLVE** (`src/solver.ts`) keeps as many lines as fit and breaks before the first line that would cross the page bottom; the remainder continues on the next page and may split again, so a paragraph taller than a page spans several pages. Widow/orphan minimums (2 lines stay, 2 lines move) bound every split; when they cannot be satisfied, the paragraph falls back to being pushed whole, as do all atomic blocks.
+- **DECORATE** places the same pooled widget at an inline position between two words (`#paper .ProseMirror p .page-gap { float: left; clear: both; width: 100%; }`). `marks: []` keeps it from inheriting the marks of the text before it.
+
+Two bugs the e2e suite caught during implementation, worth remembering:
+
+- **Split positions must be cached node-local.** The measure cache is keyed by node identity, and an insertion elsewhere in the document preserves the node while shifting its doc positions. Caching absolute positions therefore served stale positions on cache hits, and the widget rendered a line or two away from where the solver's heights said it should be. Candidates are now cached as offsets from the paragraph's content start and made absolute against the current offset at each pass.
+- **The e2e state lookup was vacuously passing.** `p.getState?.(p.key ?? "pagination")` passes a key where ProseMirror expects an editor state, so it always returned undefined and the old placement check passed against an empty list. `window.__pager` now exposes the plugin key and the tests read state through it.
+
+The e2e suite verifies the feature end to end: at least one break is inline, every widget sits immediately before its break's content (block or word), and every widget's box bottom lands within 0.5px of the next page's content start — including after typing inside a paragraph that straddles a boundary, where the reflow performs only pooled-widget reuse (insertBefore, text re-splits, `--push` writes).
+
 ---
