@@ -57,6 +57,9 @@ Render:  Decoration.widget(pos, <page gap>)          ← real DOM, contenteditab
          Decoration.node(pos, { margin-top: Npx })   ← attribute write on existing node
 ```
 
+before:  [H, A, B, C, ←break→ T(table), D]   table had the mark
+after:   [H, A, B, ←break→ C, T(table), D]   C's <p> has the mark
+
 When B grows and the break moves earlier, the complete set of DOM operations is:
 
 1. B's `<p>` — text updated (the actual edit)
@@ -67,5 +70,24 @@ When B grows and the break moves earlier, the complete set of DOM operations is:
 No element created or destroyed. No subtree reparented. The `<table>` keeps its identity, children, scroll position, and any focus inside it.
 
 **The page look is CSS.** A fixed-width white column with a shadow.
+
+---
+
+# Open Questions
+
+## How to split paragraphs
+
+So far, we haven't brought up splitting nodes. In the above design, a paragraph that does not fit on a page is pushed whole to the next page. This creates "ragged bottoms", but keeps the logic simple. However, it is not the right user experience because a user will suddenly notice the whole paragraph shifting to the next page.
+
+But at the same time, we cannot split the paragraph nodes. That would put pagination into the document: it would enter history, so Ctrl+Z would fight the reflow, and every keystroke near a page boundary would rewrite document structure. It also breaks rule 1 (no page nodes in the doc).
+
+One proposal is to keep the paragraph as one document node and place the gap widget *between two words* inside it, so the first lines fill the current page and the rest flows onto the next. Then the question becomes of how to exactly render this gap widget inside a paragraph correctly.
+
+The following are two proposals:
+
+- **`display: inline-block; width: 100%`** — simple, but wrong by a few pixels. Every text line behaves as if it held an invisible zero-width character as tall as the paragraph's line-height, and an empty inline-block aligns its bottom edge to the text baseline. So the line box becomes widget height plus that extra leading, and the words after the widget land too low. The error depends on font metrics (it changes with font-size marks) and it accumulates into every break inside a paragraph.
+- **`float: left; clear: both; width: 100%`** — floats are ignored by baseline layout, and a cleared line must start below the float's bottom edge. No baseline math, no extra leading: the inserted space is the widget's height, exactly like the block-level case. The price is float quirks (interaction with `text-align: justify`, and the paragraph box growing correctly around a cleared float).
+
+Needs to be verified practically.
 
 ---
