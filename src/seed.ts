@@ -1,7 +1,8 @@
 /**
  * Seed document — long enough to span 4+ pages, with headings, a horizontal
- * rule, mixed marks (strong / em / fontSize) and one explicit pageBreak node
- * so the forced-break path is visible on first load.
+ * rule, mixed marks (strong / em / fontSize), one justified paragraph, and
+ * one explicit pageBreak node so the forced-break path is visible on first
+ * load.
  */
 import { schema } from "./schema"
 import type { Node, Mark } from "prosemirror-model"
@@ -103,6 +104,12 @@ export function buildSeedDoc(): Node {
       text("Font size is a mark too — ", []),
       text("like this 20px span", [m.size(20)]),
       text(" — and since marks change rendered heights, resizing text reflows pages through the same measure-solve-decorate pipeline.")
+    ),
+    schema.nodes.paragraph.create(
+      { align: "justify" },
+      text(
+        "Alignment is the same idea one level up: left, center, right, and justified are authorial choices, so each lives on its block as a node attribute — one real, undoable transaction, serialized with the document exactly like the marks above. This paragraph is set to justified: every line except the last is stretched flush to both margins, and because justification never changes which words share a line, page breaks land in exactly the same places as they would with a ragged right edge. A paragraph that splits across a page boundary keeps its flush edges on both sides of the gap."
+      )
     ),
     schema.nodes.horizontal_rule.create()
   )

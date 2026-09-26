@@ -11,6 +11,9 @@
  *      the first undo would undo a reflow instead, and the text would stay).
  *   4. Rule 3: typing that moves a break logs insertBefore + setAttribute
  *      ops only — no creates, removes, or "other".
+ *   5. Justified text: every line but the last sits flush at the right
+ *      margin — including the lines around a gap widget in a paragraph
+ *      that splits across a page, applied through the real toolbar.
  *
  * Requires google-chrome on PATH and a build (npm run build).
  */
@@ -240,6 +243,114 @@ landing.forEach((l, i) => {
     l.bottom == null ? "widget missing" : `off by ${(l.bottom - pageStart).toFixed(2)}px`
   )
 })
+
+console.log("— justified text: flush lines, including across a page split")
+// Word rects grouped into visual lines — the same measuring method the
+// pagination plugin uses. A justified paragraph must put every line except
+// its last flush at the paragraph's right edge; the last line stays ragged.
+const measureJustified = (mode) =>
+  page.evaluate((mode) => {
+    const ps = [...document.querySelectorAll(".ProseMirror p")]
+    const p =
+      mode === "split"
+        ? ps.find((el) => el.querySelector(".page-gap"))
+        : ps.find((el) => el.style.textAlign === "justify")
+    if (!p) return { error: "no such paragraph" }
+    const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT)
+    const words = []
+    let tn
+    while ((tn = walker.nextNode())) {
+      // The gap widget renders its own page number — decoration, not text.
+      // Skip it, the same way the plugin's measurement does.
+      if (tn.parentElement?.closest(".page-gap")) continue
+      const s = tn.textContent || ""
+      const re = /\S+/g
+      let m
+      while ((m = re.exec(s))) {
+        const r = document.createRange()
+        r.setStart(tn, m.index)
+        r.setEnd(tn, m.index + m[0].length)
+        const rect = r.getBoundingClientRect()
+        if (rect.width || rect.height) words.push(rect)
+      }
+    }
+    words.sort((a, b) => a.top - b.top)
+    const lines = []
+    for (const w of words) {
+      const line = lines[lines.length - 1]
+      const overlap = line ? Math.min(line.bottom, w.bottom) - Math.max(line.top, w.top) : 0
+      if (line && overlap > Math.min(line.bottom - line.top, w.bottom - w.top) / 2) {
+        line.top = Math.min(line.top, w.top)
+        line.bottom = Math.max(line.bottom, w.bottom)
+        line.right = Math.max(line.right, w.right)
+      } else {
+        lines.push({ top: w.top, bottom: w.bottom, right: w.right })
+      }
+    }
+    const right = p.getBoundingClientRect().right
+    const gapBox = p.querySelector(".page-gap")?.getBoundingClientRect() ?? null
+    const bad = []
+    lines.forEach((l, i) => {
+      if (i < lines.length - 1 && Math.abs(l.right - right) > 1) bad.push({ line: i, shortBy: right - l.right })
+    })
+    const flush = (l) => Math.abs(l.right - right) <= 1
+    return {
+      error: null,
+      justified: p.style.textAlign === "justify",
+      lineCount: lines.length,
+      bad,
+      right,
+      lastRight: lines[lines.length - 1]?.right ?? null,
+      hasGap: !!gapBox,
+      aboveGap: gapBox ? lines.filter((l) => l.bottom <= gapBox.top && flush(l)).length : 0,
+      belowGap: gapBox ? lines.filter((l) => l.top >= gapBox.bottom && flush(l)).length : 0,
+    }
+  }, mode)
+
+// 5a. The seed's justified paragraph: flush everywhere but the last line.
+const seedJust = await measureJustified("seed")
+ok(seedJust.error === null, "seed's justified paragraph is in the DOM (toDOM wrote the style)")
+ok(seedJust.justified && seedJust.lineCount >= 2, `justified paragraph wraps to ${seedJust.lineCount} lines`)
+ok(
+  seedJust.bad.length === 0,
+  "every line but the last sits flush at the right margin",
+  `bad lines: ${JSON.stringify(seedJust.bad)}`
+)
+ok(
+  seedJust.lastRight != null && seedJust.lastRight < seedJust.right - 10,
+  "the last line stays ragged (browsers never justify it)",
+  `last line right edge ${(seedJust.right - seedJust.lastRight).toFixed(1)}px short`
+)
+
+// 5b. Justify a paragraph that straddles a page boundary, through the real
+// toolbar control, and check the lines on both sides of the gap widget.
+await page.evaluate(() => {
+  const p = [...document.querySelectorAll(".ProseMirror p")].find((el) =>
+    el.querySelector(".page-gap")
+  )
+  const range = document.createRange()
+  range.selectNodeContents(p)
+  range.collapse(false)
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
+  document.querySelector(".ProseMirror").focus()
+})
+await page.select('select[title="Alignment"]', "justify")
+await sleep(900) // debounced reflow
+const splitJust = await measureJustified("split")
+ok(splitJust.error === null && splitJust.justified, "toolbar Alignment control justified the split paragraph")
+ok(splitJust.hasGap, "that paragraph still straddles a page (contains a gap widget)")
+ok(
+  splitJust.bad.length === 0,
+  "flush across the whole split paragraph, on both pages",
+  `bad lines: ${JSON.stringify(splitJust.bad)}`
+)
+ok(
+  splitJust.aboveGap >= 1 && splitJust.belowGap >= 1,
+  "flush lines both above and below the gap widget",
+  `above=${splitJust.aboveGap} below=${splitJust.belowGap}`
+)
 
 console.log("— doc.toJSON() carries no page nodes")
 const docDumped = await page.evaluate(() => {

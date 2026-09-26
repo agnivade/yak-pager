@@ -1,6 +1,7 @@
 /**
- * Toolbar — bold, italic, font size, block type, and the button that inserts
- * an *explicit* page break (the one kind of break that IS a document node).
+ * Toolbar — bold, italic, font size, block type, alignment, and the button
+ * that inserts an *explicit* page break (the one kind of break that IS a
+ * document node).
  *
  * The interesting bit conceptually: marks are ranges in the document, so
  * applying one is a normal transaction (undoable, serializable). Contrast
@@ -9,9 +10,34 @@
 import type { EditorView } from "prosemirror-view"
 import { toggleMark, setBlockType } from "prosemirror-commands"
 import type { Command } from "prosemirror-state"
+import type { Node } from "prosemirror-model"
 import { schema } from "./schema"
 
 const { strong, em, fontSize } = schema.marks
+
+/**
+ * Set text alignment on every block in the selection that carries the
+ * `align` attr (paragraphs and headings). Deliberately not one blanket
+ * `setBlockType`: applied over a selection it would convert every block to
+ * the same type, flattening a heading into a paragraph. Here each block
+ * keeps its type and only the attr changes — still one normal transaction,
+ * so undo and serialization come for free.
+ */
+export function setAlign(align: string): Command {
+  return (state, dispatch) => {
+    const { from, to } = state.selection
+    const tr = state.tr
+    let touched = false
+    state.doc.nodesBetween(from, to, (node: Node, pos: number) => {
+      if (!("align" in node.attrs) || node.attrs.align === align) return
+      tr.setBlockType(pos, pos + node.nodeSize, node.type, { ...node.attrs, align })
+      touched = true
+    })
+    if (!touched) return false
+    dispatch?.(tr)
+    return true
+  }
+}
 
 function setFontSize(size: number | null): Command {
   return (state, dispatch) => {
@@ -61,6 +87,13 @@ export function insertHardBreak(state: Parameters<Command>[0], dispatch?: Parame
 }
 
 const FONT_SIZES = [12, 14, 16, 18, 20, 24, 32]
+
+const ALIGNMENTS: Array<[string, string]> = [
+  ["left", "Left"],
+  ["center", "Center"],
+  ["right", "Right"],
+  ["justify", "Justify"],
+]
 
 export function buildToolbar(view: EditorView, mount: HTMLElement): { sync: () => void } {
   const run = (cmd: Command) => () => {
@@ -114,6 +147,16 @@ export function buildToolbar(view: EditorView, mount: HTMLElement): { sync: () =
     if (cmd) run(cmd)()
   }
 
+  const alignSel = document.createElement("select")
+  alignSel.title = "Alignment"
+  for (const [value, label] of ALIGNMENTS) {
+    const o = document.createElement("option")
+    o.value = value
+    o.textContent = label
+    alignSel.append(o)
+  }
+  alignSel.onchange = () => run(setAlign(alignSel.value))()
+
   const pbBtn = document.createElement("button")
   pbBtn.textContent = "⤓ Page break"
   pbBtn.title = "Insert explicit page break (Mod-Enter)"
@@ -123,7 +166,7 @@ export function buildToolbar(view: EditorView, mount: HTMLElement): { sync: () =
   hint.className = "tb-hint"
   hint.textContent = "Ctrl/⌘-Z undoes typing — pagination is never in the undo stack"
 
-  mount.append(strongBtn, emBtn, sizeSel, blockSel, pbBtn, hint)
+  mount.append(strongBtn, emBtn, sizeSel, blockSel, alignSel, pbBtn, hint)
 
   const sync = () => {
     const { state } = view
@@ -137,6 +180,9 @@ export function buildToolbar(view: EditorView, mount: HTMLElement): { sync: () =
     const parent = selection.$from.parent
     blockSel.value =
       parent.type.name === "heading" ? `Heading ${parent.attrs.level}` : "Paragraph"
+    // Blocks without the attr (rules, page breaks) match no option, so the
+    // select shows blank — the control has nothing to say there.
+    alignSel.value = "align" in parent.attrs ? parent.attrs.align : ""
   }
   sync()
   return { sync }

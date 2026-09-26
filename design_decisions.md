@@ -73,6 +73,14 @@ No element created or destroyed. No subtree reparented. The `<table>` keeps its 
 
 ---
 
+# 4. Alignment lives in the document
+
+Left, center, right, and justified are authorial intent, so alignment is a node attribute on paragraphs and headings — one real transaction with steps, undoable and serialized like any mark, rendered as a `text-align` inline style only when it is not the default. The toolbar's alignment control changes that attr; it never touches CSS classes or plugin state, and it sets the attr per block rather than one blanket `setBlockType`, which would convert a heading inside the selection into a paragraph.
+
+Justification costs pagination nothing: it stretches spaces without changing which words share a line, so measured line boundaries and block heights are identical to the ragged-right case, and the solver sees the same numbers. The one interaction — a justified paragraph split across a page boundary — was already verified in the spike (point 3: justify holds across the floated gap widget) and is now checked by the e2e suite on every run: every line but the last must sit flush at the right margin, including the lines on both sides of the widget.
+
+---
+
 # Open Questions
 
 ## How to split paragraphs
