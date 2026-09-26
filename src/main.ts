@@ -7,6 +7,7 @@ import { history, undo, redo } from "prosemirror-history"
 import { buildSeedDoc } from "./seed"
 import { paginationPlugin, paginationKey, requestFullRecompute } from "./paginationPlugin"
 import { buildToolbar, insertPageBreak, insertHardBreak } from "./toolbar"
+import { buildPrintPreviewButtons } from "./printPreview"
 import { createDevPanel } from "./devPanel"
 import "./styles.css"
 
@@ -39,6 +40,7 @@ const view = new EditorView(paperHost, {
 })
 
 toolbar = buildToolbar(view, document.getElementById("toolbar")!)
+buildPrintPreviewButtons(view, document.getElementById("toolbar")!)
 panel.attach(view)
 
   // Poke at the editor from the console: window.__pager.view.state.doc, ...

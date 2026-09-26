@@ -430,3 +430,72 @@ body {
   font-size: 10px;
   margin-bottom: 8px;
 }
+
+/* ---------- print preview (spike) ----------
+   Approach C's in-app preview: the print document itself, rendered in an
+   iframe and scaled to fit. The same iframe prints, so the preview and the
+   printout are one rendering. While loading, the overlay keeps visibility
+   hidden (not display: none) so the iframe still lays out and can be
+   measured. */
+#print-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+#print-modal.pm-loading {
+  visibility: hidden;
+}
+.pm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #ffffff;
+  border-bottom: 1px solid #c9ced7;
+}
+.pm-head span {
+  font-size: 13px;
+  font-weight: 600;
+}
+.pm-actions {
+  display: flex;
+  gap: 8px;
+}
+.pm-actions button {
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid #c9ced7;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pm-actions button:hover {
+  background: #f0f4f9;
+}
+.pm-actions .pm-print {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.pm-actions .pm-print:hover {
+  background: #1558b8;
+}
+.pm-body {
+  flex: 1;
+  overflow: auto;
+}
+/* The zoom box carries the scale transform; its width and height are set
+   from JS so the scaled iframe still centers and scrolls correctly. */
+.pm-zoom {
+  transform-origin: top left;
+  margin: 24px auto;
+}
+.pm-frame {
+  display: block;
+  border: 0;
+}
