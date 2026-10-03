@@ -35,9 +35,9 @@
 export const BAND = 216
 
 /** Fewest lines that must stay behind a split (orphan control). */
-export const MIN_KEPT_LINES = 2
+export const MIN_KEPT_LINES = 1
 /** Fewest lines that must move to the new page (widow control). */
-export const MIN_CARRIED_LINES = 2
+export const MIN_CARRIED_LINES = 1
 
 export interface Block {
   /** Doc position of the block's start. */
