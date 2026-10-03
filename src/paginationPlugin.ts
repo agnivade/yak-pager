@@ -108,11 +108,7 @@ export function requestFullRecompute(view: EditorView) {
 
 /**
  * Union of the positions a transaction's steps touched, in FINAL doc
- * coordinates. Each step's StepMap describes its change against the doc as
- * it looked before that step, so its ranges must be pushed through the maps
- * of all LATER steps (tr.mapping.slice(i + 1)) before they can be compared
- * with anything current. This is the standard tr.mapping remapping dance:
- * old coordinates → new coordinates, one slice at a time.
+ * coordinates.
  */
 function changedRange(tr: Transaction): { from: number; to: number } | null {
   if (!tr.docChanged) return null
@@ -153,6 +149,8 @@ export function paginationPlugin(options: { onReflow?: (report: ReflowReport) =>
   // The widget pool is what "the single reused page-gap widget" means
   // concretely: element i is created once and re-inserted forever after.
   const pool = new Map<number, HTMLElement>()
+  // Purely needed for the devPanel to get the right info.
+  // Nothing to do with the core pagination.
   const createdThisPass = new Set<HTMLElement>()
   let passCount = 0
 
@@ -201,33 +199,17 @@ export function paginationPlugin(options: { onReflow?: (report: ReflowReport) =>
           }
         }
 
+        // We need both remapRange and changedRange because the UI doesn't get updated
+        // for every transaction. The runPass is scheduled only once in 100ms, so multiple transactions
+        // might have happened before the call. Therefore, we need to find out the changes
+        // in the current transaction as well as combine them with the previous transactions.
         const dirty = unionRange(remapRange(prev.dirty, tr), changedRange(tr))
         let next: PaginationState = { ...prev, decos: prev.decos.map(tr.mapping, tr.doc), dirty }
 
         const meta = tr.getMeta(paginationKey) as LayoutMeta | undefined
+        // This is a layout signal from runPass.
+        // We set the new widget decorations and wipe off the dirty state.
         if (meta && meta.type === "layout") {
-          // (c) DECORATE: one pooled widget per break. The widget is not
-          // just the band's visuals — its box height (calc(216px +
-          // var(--push)) in CSS) IS the push, so the content after the
-          // break simply flows after the widget and lands exactly on the
-          // next page's content start. That content may be a block (widget
-          // drawn between blocks) or the rest of a paragraph (widget drawn
-          // between two words, floated by the `p .page-gap` rule in CSS)
-          // — same element, same mechanism either way. No DOM attribute
-          // of any block is ever touched: prosemirror-view reconciles
-          // attribute mutations on block descs by marking them dirty and
-          // REBUILDING their elements (registerMutation → markDirty),
-          // while widgets' ignoreMutation ignores everything — so all
-          // layout writes go through the widget, where PM's DOM observer
-          // cannot see them. (This is why DECORATE deliberately has no
-          // Decoration.node with margin-top, though it is the obvious
-          // idiom: the e2e suite proves that path rebuilds blocks on
-          // every reflow.)
-          // `marks: []` matters for the in-paragraph case: a widget at an
-          // inline position inherits the marks of the text before it
-          // (side < 0), so a split inside a bold phrase would render the
-          // widget wrapped in <strong>. No marks keeps it a plain child
-          // of the paragraph.
           const widgets = meta.breaks.map((b, i) =>
             Decoration.widget(b.pos, () => takeFromPool(i), {
               key: `page-gap-${i}`,
@@ -260,9 +242,7 @@ export function paginationPlugin(options: { onReflow?: (report: ReflowReport) =>
 
       // MEASURE cache — keyed by Node object identity. PM nodes are
       // immutable values: editing a paragraph produces a *different* Node,
-      // while untouched blocks keep theirs across the transaction. So
-      // identity is both the cache key and the invalidation signal; the
-      // dirty range above double-checks on top of it.
+      // while untouched blocks keep theirs across the transaction.
       const cache = new WeakMap<PMNode, MeasuredBlock>()
 
       let timer: ReturnType<typeof setTimeout> | null = null
@@ -270,8 +250,7 @@ export function paginationPlugin(options: { onReflow?: (report: ReflowReport) =>
       let pendingFull = false
       let destroyed = false
 
-      // Empirical rule-3 log: records pulled synchronously with
-      // takeRecords() bracket the dispatch exactly.
+      // This is needed to pass info to the devPanel
       const mo = new MutationObserver(() => {})
       mo.observe(stack, {
         childList: true,
@@ -533,9 +512,6 @@ export function paginationPlugin(options: { onReflow?: (report: ReflowReport) =>
 
 /**
  * Top-level block DOM elements, in document order, with gap widgets skipped.
- * The editor's element children are exactly the rendered top-level blocks
- * plus our own widgets, so this index-parallel walk replaces any
- * position-to-DOM math (nodeDOM) and cannot drift.
  */
 function topBlockElements(dom: HTMLElement): (HTMLElement | null)[] {
   const out: (HTMLElement | null)[] = []
